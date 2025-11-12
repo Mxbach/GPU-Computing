@@ -6,3 +6,7 @@ build:
 
 cuda:
 	nvcc -O2 -o acc $(SRC_DIR)/accelerated.cu
+
+clean: 
+	rm -f acc
+	rm -f slow
