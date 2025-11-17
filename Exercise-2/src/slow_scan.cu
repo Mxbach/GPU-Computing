@@ -127,16 +127,18 @@ __global__ void parallel_scan_phase_3(size_t size, float *out_d, float *block_su
   if (idx < num_pairs && bid > 0) {
     float real_cur = out_d[idx*2];
     float im_cur = out_d[idx*2 + 1];
+
+    float real_prefix = temp[0];
+    float im_prefix = temp[1];
     
-    out_d[idx*2] = temp[0] * real_cur - temp[1] * im_cur;
-    out_d[idx*2 + 1] = temp[0] * im_cur + real_cur * temp[1];
+    out_d[idx*2] = real_prefix * real_cur - im_prefix * im_cur;
+    out_d[idx*2 + 1] = real_prefix * im_cur + real_cur * im_prefix;
   }
 }
 
 int parallel_scan_multi_block(size_t size, float *in_d, float *out_d) {
   size_t num_pairs = size / 2;
   size_t num_blocks = (num_pairs + BLOCK_SIZE - 1) / BLOCK_SIZE;
-  std::cout << "num_blocks: " << num_blocks << std::endl;
 
   float *block_sums_d;
   CUDA_CALL(cudaMalloc((void **)&block_sums_d, num_blocks * 2 * sizeof(float)));
