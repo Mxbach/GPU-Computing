@@ -128,8 +128,8 @@ __global__ void parallel_scan_phase_3(size_t size, float *out_d, float *block_su
     float real_cur = out_d[idx*2];
     float im_cur = out_d[idx*2 + 1];
     
-    out_d[idx*2] = real_prefix * real_cur - im_prefix * im_cur;
-    out_d[idx*2 + 1] = real_prefix * im_cur + real_cur * im_prefix;
+    out_d[idx*2] = temp[0] * real_cur - temp[1] * im_cur;
+    out_d[idx*2 + 1] = temp[0] * im_cur + real_cur * temp[1];
   }
 }
 
