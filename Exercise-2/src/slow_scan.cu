@@ -27,7 +27,7 @@ __global__ void parallel_scan_phase_1(size_t size, float *in_d, float *out_d, fl
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
   size_t num_pairs = size / 2;
 
-  if (tid < num_pairs) {
+  if (idx < num_pairs) {
     temp[tid*2] = in_d[idx*2];
     temp[tid*2 + 1] = in_d[idx*2 + 1];
   }
@@ -62,7 +62,7 @@ __global__ void parallel_scan_phase_1(size_t size, float *in_d, float *out_d, fl
     out_d[idx*2 + 1] = temp[tid*2 + 1];
   }
 
-  if (tid == BLOCK_SIZE - 1 && blockIdx.x < num_blocks) {
+  if (tid == BLOCK_SIZE - 1 && blockIdx.x < num_blocks || (blockIdx.x == num_blocks - 1) && tid == ((num_pairs - 1) % BLOCK_SIZE)) {
     block_sums_d[blockIdx.x*2] = temp[tid*2];
     block_sums_d[blockIdx.x*2 + 1] = temp[tid*2 + 1];
   }
