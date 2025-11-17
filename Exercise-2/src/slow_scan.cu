@@ -116,12 +116,17 @@ __global__ void parallel_scan_phase_3(size_t size, float *out_d, float *block_su
   int bid = blockIdx.x;
   size_t num_pairs = size / 2;
 
+  __shared__ float temp[2];
+
+  if(threadIdx.x == 0 && bid > 0) {
+    temp[0] = block_sums_d[(bid-1) * 2];
+    temp[1] = block_sums_d[(bid-1) * 2 + 1];
+  }
+  __syncthreads();
+
   if (idx < num_pairs && bid > 0) {
     float real_cur = out_d[idx*2];
     float im_cur = out_d[idx*2 + 1];
-    
-    float real_prefix = block_sums_d[(bid-1) * 2];
-    float im_prefix = block_sums_d[(bid-1) * 2 + 1];
     
     out_d[idx*2] = real_prefix * real_cur - im_prefix * im_cur;
     out_d[idx*2 + 1] = real_prefix * im_cur + real_cur * im_prefix;
@@ -167,7 +172,6 @@ int parallel_scan_multi_block(size_t size, float *in_d, float *out_d) {
 
 int main() {
   size_t size = 33554432 * 2;
-  // size_t size = 2048 * 2;
   float *in_d, *in_h, *out_d, *out_h;
 
   // Allocate on host
