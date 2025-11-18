@@ -22,14 +22,18 @@ void sequential_scan(size_t size, float *in_h, float *out_h) {
 }
 
 __global__ void parallel_scan_phase_1(size_t size, float *in_d, float *out_d, float *block_sums_d, int num_blocks) {
-  __shared__ float temp[BLOCK_SIZE*2];
+  __shared__ float temp_real[BLOCK_SIZE];
+  __shared__ float temp_im[BLOCK_SIZE];
   int tid = threadIdx.x;
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
   size_t num_pairs = size / 2;
 
   if (idx < num_pairs) {
-    temp[tid*2] = in_d[idx*2];
-    temp[tid*2 + 1] = in_d[idx*2 + 1];
+    temp_real[tid] = in_d[idx*2];
+    temp_im[tid] = in_d[idx*2 + 1];
+  } else {
+    temp_real[tid] = 1;
+    temp_im[tid] = 0;
   }
   __syncthreads();
 
@@ -40,10 +44,10 @@ __global__ void parallel_scan_phase_1(size_t size, float *in_d, float *out_d, fl
       int idx_prev = tid - stride;
       int idx_cur = tid;
 
-      float real_prev = temp[idx_prev*2];
-      float real_cur = temp[idx_cur*2];
-      float im_prev = temp[idx_prev*2 + 1];
-      float im_cur = temp[idx_cur*2 + 1];
+      float real_prev = temp_real[idx_prev];
+      float real_cur = temp_real[idx_cur];
+      float im_prev = temp_im[idx_prev];
+      float im_cur = temp_im[idx_cur];
 
       val_real = real_prev * real_cur - im_prev * im_cur;
       val_im = real_prev * im_cur + real_cur * im_prev;
@@ -51,32 +55,36 @@ __global__ void parallel_scan_phase_1(size_t size, float *in_d, float *out_d, fl
     __syncthreads();
 
     if (tid >= stride) {
-      temp[tid*2] = val_real;
-      temp[tid*2 + 1] = val_im;
+      temp_real[tid] = val_real;
+      temp_im[tid] = val_im;
     }
-
     __syncthreads();
   }
+
   if (idx < num_pairs) {
-    out_d[idx*2] = temp[tid*2];
-    out_d[idx*2 + 1] = temp[tid*2 + 1];
+    out_d[idx*2] = temp_real[tid];
+    out_d[idx*2 + 1] = temp_im[tid];
   }
 
   if (tid == BLOCK_SIZE - 1 && blockIdx.x < num_blocks || (blockIdx.x == num_blocks - 1) && tid == ((num_pairs - 1) % BLOCK_SIZE)) {
-    block_sums_d[blockIdx.x*2] = temp[tid*2];
-    block_sums_d[blockIdx.x*2 + 1] = temp[tid*2 + 1];
+    block_sums_d[blockIdx.x*2] = temp_real[tid];
+    block_sums_d[blockIdx.x*2 + 1] = temp_im[tid];
   }
 }
 
 __global__ void parallel_scan_phase_2(float* block_sums_d, int num_blocks) {
-  __shared__ float temp[BLOCK_SIZE*2];
+  __shared__ float temp_real[BLOCK_SIZE];
+  __shared__ float temp_im[BLOCK_SIZE];
 
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
   int tid = threadIdx.x;
 
   if (idx < num_blocks) {
-    temp[tid*2] = block_sums_d[idx*2];
-    temp[tid*2 + 1] = block_sums_d[idx*2 + 1];
+    temp_real[tid] = block_sums_d[idx*2];
+    temp_im[tid] = block_sums_d[idx*2 + 1];
+  } else {
+    temp_real[tid] = 1;
+    temp_im[tid] = 0;
   }
   __syncthreads();
 
@@ -87,10 +95,10 @@ __global__ void parallel_scan_phase_2(float* block_sums_d, int num_blocks) {
       int idx_prev = tid - stride;
       int idx_cur = tid;
 
-      float real_prev = temp[idx_prev*2];
-      float real_cur = temp[idx_cur*2];
-      float im_prev = temp[idx_prev*2 + 1];
-      float im_cur = temp[idx_cur*2 + 1];
+      float real_prev = temp_real[idx_prev];
+      float real_cur = temp_real[idx_cur];
+      float im_prev = temp_im[idx_prev];
+      float im_cur = temp_im[idx_cur];
 
       val_real = real_prev * real_cur - im_prev * im_cur;
       val_im = real_prev * im_cur + real_cur * im_prev;
@@ -98,16 +106,15 @@ __global__ void parallel_scan_phase_2(float* block_sums_d, int num_blocks) {
     __syncthreads();
 
     if (tid >= stride && tid < num_blocks) {
-      temp[2*tid] = val_real;
-      temp[2*tid + 1] = val_im;
+      temp_real[tid] = val_real;
+      temp_im[tid] = val_im;
     }
-
     __syncthreads();
   }
 
   if (idx < num_blocks) {
-    block_sums_d[idx*2] = temp[idx*2];
-    block_sums_d[idx*2 + 1] = temp[idx*2 + 1];
+    block_sums_d[idx*2] = temp_real[idx];
+    block_sums_d[idx*2 + 1] = temp_im[idx];
   }
 }
 
@@ -210,6 +217,9 @@ int main() {
   std::cout << "First 3 entries of Out Vec:" << std::endl;
   for (int32_t i = 0; i < 5 * 2; i += 2)
     std::cout << out_h[i] << " + " << out_h[i + 1] << std::endl;
+  std::cout << "Last 3 entries of Out Vec:" << std::endl;
+  for (size_t i = size - 6; i < size; i += 2) 
+    std::cout << out_h[i] << " + " << out_h[i + 1] << "i" << std::endl;
 
   std::chrono::duration<double> elapsed_seconds = end - start;
   std::cout << "Elapsed time: " << elapsed_seconds.count() << "s" << std::endl;
