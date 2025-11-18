@@ -9,139 +9,93 @@
 
 void sequential_scan(size_t size, float *in_h, float *out_h) {
   out_h[0] = in_h[0];
-  out_h[1] = in_h[1];
-  for (auto i = 2; i < size; i += 2) {
-    float real_prev = out_h[i - 2];
-    float real_cur = in_h[i];
-    float im_prev = out_h[i - 1];
-    float im_cur = in_h[i + 1];
-
-    out_h[i] = real_prev * real_cur - im_prev * im_cur;
-    out_h[i + 1] = real_prev * im_cur + real_cur * im_prev;
+  for (auto i = 1; i < size; i++) {
+    out_h[i] = in_h[i] + out_h[i-1];
   }
 }
 
 __global__ void parallel_scan_phase_1(size_t size, float *in_d, float *out_d, float *block_sums_d, int num_blocks) {
-  __shared__ float temp[BLOCK_SIZE*2];
+  __shared__ float temp[BLOCK_SIZE];
   int tid = threadIdx.x;
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
-  size_t num_pairs = size / 2;
 
-  if (idx < num_pairs) {
-    temp[tid*2] = in_d[idx*2];
-    temp[tid*2 + 1] = in_d[idx*2 + 1];
+  if (idx < size) {
+    temp[tid] = in_d[idx];
+  } else {
+    temp[tid] = 0;
   }
   __syncthreads();
 
   for (int stride = 1; stride < BLOCK_SIZE; stride *= 2) {
-    float val_real = 0;
-    float val_im = 0;
+    float val = 0;
     if (tid >= stride) {
-      int idx_prev = tid - stride;
-      int idx_cur = tid;
-
-      float real_prev = temp[idx_prev*2];
-      float real_cur = temp[idx_cur*2];
-      float im_prev = temp[idx_prev*2 + 1];
-      float im_cur = temp[idx_cur*2 + 1];
-
-      val_real = real_prev * real_cur - im_prev * im_cur;
-      val_im = real_prev * im_cur + real_cur * im_prev;
+      val += temp[tid] + temp[tid - stride];
     }
     __syncthreads();
 
     if (tid >= stride) {
-      temp[tid*2] = val_real;
-      temp[tid*2 + 1] = val_im;
+      temp[tid] = val;
     }
-
     __syncthreads();
   }
-  if (idx < num_pairs) {
-    out_d[idx*2] = temp[tid*2];
-    out_d[idx*2 + 1] = temp[tid*2 + 1];
+
+  if (idx < size) {
+    out_d[idx] = temp[tid];
   }
 
-  if (tid == BLOCK_SIZE - 1 && blockIdx.x < num_blocks || (blockIdx.x == num_blocks - 1) && tid == ((num_pairs - 1) % BLOCK_SIZE)) {
-    block_sums_d[blockIdx.x*2] = temp[tid*2];
-    block_sums_d[blockIdx.x*2 + 1] = temp[tid*2 + 1];
+  if (tid == BLOCK_SIZE - 1 && blockIdx.x < num_blocks) {
+    block_sums_d[blockIdx.x] = temp[tid];
   }
 }
 
 __global__ void parallel_scan_phase_2(float* block_sums_d, int num_blocks) {
-  __shared__ float temp[BLOCK_SIZE*2];
+  __shared__ float temp[BLOCK_SIZE];
 
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
   int tid = threadIdx.x;
 
   if (idx < num_blocks) {
-    temp[tid*2] = block_sums_d[idx*2];
-    temp[tid*2 + 1] = block_sums_d[idx*2 + 1];
+    temp[tid] = block_sums_d[idx];
+  } else {
+    temp[tid] = 0;
   }
   __syncthreads();
 
   for (int stride = 1; stride < num_blocks; stride *= 2) {
-    float val_real = 0;
-    float val_im = 0;
+    float val = 0;
     if (tid >= stride && tid < num_blocks) {
-      int idx_prev = tid - stride;
-      int idx_cur = tid;
-
-      float real_prev = temp[idx_prev*2];
-      float real_cur = temp[idx_cur*2];
-      float im_prev = temp[idx_prev*2 + 1];
-      float im_cur = temp[idx_cur*2 + 1];
-
-      val_real = real_prev * real_cur - im_prev * im_cur;
-      val_im = real_prev * im_cur + real_cur * im_prev;
+      val = temp[tid] + temp[tid - stride];
     }
     __syncthreads();
 
     if (tid >= stride && tid < num_blocks) {
-      temp[2*tid] = val_real;
-      temp[2*tid + 1] = val_im;
+      temp[tid] = val;
     }
 
     __syncthreads();
   }
 
   if (idx < num_blocks) {
-    block_sums_d[idx*2] = temp[idx*2];
-    block_sums_d[idx*2 + 1] = temp[idx*2 + 1];
+    block_sums_d[idx] = temp[tid];
   }
 }
 
 __global__ void parallel_scan_phase_3(size_t size, float *out_d, float *block_sums_d) {
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
   int bid = blockIdx.x;
-  size_t num_pairs = size / 2;
 
-  __shared__ float temp[2];
-
-  if(threadIdx.x == 0 && bid > 0) {
-    temp[0] = block_sums_d[(bid-1) * 2];
-    temp[1] = block_sums_d[(bid-1) * 2 + 1];
-  }
-  __syncthreads();
-
-  if (idx < num_pairs && bid > 0) {
-    float real_cur = out_d[idx*2];
-    float im_cur = out_d[idx*2 + 1];
-
-    float real_prefix = temp[0];
-    float im_prefix = temp[1];
-    
-    out_d[idx*2] = real_prefix * real_cur - im_prefix * im_cur;
-    out_d[idx*2 + 1] = real_prefix * im_cur + real_cur * im_prefix;
+  if (idx < size && bid > 0) {
+    out_d[idx] += block_sums_d[bid - 1];
   }
 }
 
 int parallel_scan_multi_block(size_t size, float *in_d, float *out_d) {
-  size_t num_pairs = size / 2;
-  size_t num_blocks = (num_pairs + BLOCK_SIZE - 1) / BLOCK_SIZE;
+  std::cout << "using cuda" << std::endl;
+  size_t num_blocks = (size + BLOCK_SIZE - 1) / BLOCK_SIZE;
+  std::cout << "num_blocks: " << num_blocks << std::endl;
 
   float *block_sums_d;
-  CUDA_CALL(cudaMalloc((void **)&block_sums_d, num_blocks * 2 * sizeof(float)));
+  CUDA_CALL(cudaMalloc((void **)&block_sums_d, num_blocks * sizeof(float)));
 
   parallel_scan_phase_1<<<num_blocks, BLOCK_SIZE>>>(size, in_d, out_d, block_sums_d, num_blocks);
   cudaDeviceSynchronize();
@@ -152,11 +106,11 @@ int parallel_scan_multi_block(size_t size, float *in_d, float *out_d) {
       cudaDeviceSynchronize();
     } else {
       float *temp_d;
-      CUDA_CALL(cudaMalloc((void **)&temp_d, num_blocks * 2 * sizeof(float)));
+      CUDA_CALL(cudaMalloc((void **)&temp_d, num_blocks * sizeof(float)));
       
-      parallel_scan_multi_block(num_blocks * 2, block_sums_d, temp_d);
+      parallel_scan_multi_block(num_blocks , block_sums_d, temp_d);
       
-      CUDA_CALL(cudaMemcpy(block_sums_d, temp_d, num_blocks * 2 * sizeof(float), 
+      CUDA_CALL(cudaMemcpy(block_sums_d, temp_d, num_blocks * sizeof(float), 
                            cudaMemcpyDeviceToDevice));
       CUDA_CALL(cudaFree(temp_d));
     }
@@ -173,7 +127,7 @@ int parallel_scan_multi_block(size_t size, float *in_d, float *out_d) {
 }
 
 int main() {
-  size_t size = 33554432 * 2;
+  size_t size = 65536;
   float *in_d, *in_h, *out_d, *out_h;
 
   // Allocate on host
@@ -186,9 +140,13 @@ int main() {
   CUDA_CALL(cudaMalloc((void **)&out_d, size * sizeof(float)));
 
   // Initialize
-  int e = random_init(size, in_d, in_h);
-  if (e == EXIT_FAILURE)
-    return EXIT_FAILURE;
+  // int e = random_init(size, in_d, in_h);
+  // if (e == EXIT_FAILURE)
+  //   return EXIT_FAILURE;
+
+  for (int i = 0; i < size; i++) {
+    in_h[i] = 1;
+  }
 
   bool use_cuda = true;
   if(use_cuda) {
@@ -204,12 +162,18 @@ int main() {
   if(use_cuda)
     CUDA_CALL(cudaMemcpy(out_h, out_d, size * sizeof(float), cudaMemcpyDeviceToHost));
 
+  // int number_of_prints = 20;
   std::cout << "First 3 entries of In Vec:" << std::endl;
-  for (int32_t i = 0; i < 5 * 2; i += 2)
-    std::cout << in_h[i] << "," << in_h[i + 1] << std::endl;
+  for (int32_t i = 0; i < 3; i++)
+    std::cout << in_h[i] << std::endl;
   std::cout << "First 3 entries of Out Vec:" << std::endl;
-  for (int32_t i = 0; i < 5 * 2; i += 2)
-    std::cout << out_h[i] << " + " << out_h[i + 1] << std::endl;
+  for (int32_t i = 0; i < 3; i++)
+    std::cout << out_h[i] << std::endl;
+
+  std::cout << "Last 3 entries of Out Vec:" << std::endl;
+  for (size_t i = size - 3; i < size; i++) {
+      std::cout << out_h[i] << std::endl;
+  }
 
   std::chrono::duration<double> elapsed_seconds = end - start;
   std::cout << "Elapsed time: " << elapsed_seconds.count() << "s" << std::endl;
