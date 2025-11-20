@@ -7,15 +7,15 @@
 
 #define BLOCK_SIZE 1024
 
-void sequential_scan(size_t size, float *in_h, float *out_h) {
+void sequential_scan(size_t size, int *in_h, int *out_h) {
   out_h[0] = in_h[0];
   for (auto i = 1; i < size; i++) {
     out_h[i] = in_h[i] + out_h[i-1];
   }
 }
 
-__global__ void parallel_scan_phase_1(size_t size, float *in_d, float *out_d, float *block_sums_d, int num_blocks) {
-  __shared__ float temp[BLOCK_SIZE];
+__global__ void parallel_scan_phase_1(size_t size, int *in_d, int *out_d, int *block_sums_d, int num_blocks) {
+  __shared__ int temp[BLOCK_SIZE];
   int tid = threadIdx.x;
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -27,7 +27,7 @@ __global__ void parallel_scan_phase_1(size_t size, float *in_d, float *out_d, fl
   __syncthreads();
 
   for (int stride = 1; stride < BLOCK_SIZE; stride *= 2) {
-    float val = 0;
+    int val = 0;
     if (tid >= stride) {
       val += temp[tid] + temp[tid - stride];
     }
@@ -48,8 +48,8 @@ __global__ void parallel_scan_phase_1(size_t size, float *in_d, float *out_d, fl
   }
 }
 
-__global__ void parallel_scan_phase_2(float* block_sums_d, int num_blocks) {
-  __shared__ float temp[BLOCK_SIZE];
+__global__ void parallel_scan_phase_2(int* block_sums_d, int num_blocks) {
+  __shared__ int temp[BLOCK_SIZE];
 
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
   int tid = threadIdx.x;
@@ -62,7 +62,7 @@ __global__ void parallel_scan_phase_2(float* block_sums_d, int num_blocks) {
   __syncthreads();
 
   for (int stride = 1; stride < num_blocks; stride *= 2) {
-    float val = 0;
+    int val = 0;
     if (tid >= stride && tid < num_blocks) {
       val = temp[tid] + temp[tid - stride];
     }
@@ -80,7 +80,7 @@ __global__ void parallel_scan_phase_2(float* block_sums_d, int num_blocks) {
   }
 }
 
-__global__ void parallel_scan_phase_3(size_t size, float *out_d, float *block_sums_d) {
+__global__ void parallel_scan_phase_3(size_t size, int *out_d, int *block_sums_d) {
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
   int bid = blockIdx.x;
 
@@ -89,13 +89,13 @@ __global__ void parallel_scan_phase_3(size_t size, float *out_d, float *block_su
   }
 }
 
-int parallel_scan_multi_block(size_t size, float *in_d, float *out_d) {
+int parallel_scan_multi_block(size_t size, int *in_d, int *out_d) {
   std::cout << "using cuda" << std::endl;
   size_t num_blocks = (size + BLOCK_SIZE - 1) / BLOCK_SIZE;
   std::cout << "num_blocks: " << num_blocks << std::endl;
 
-  float *block_sums_d;
-  CUDA_CALL(cudaMalloc((void **)&block_sums_d, num_blocks * sizeof(float)));
+  int *block_sums_d;
+  CUDA_CALL(cudaMalloc((void **)&block_sums_d, num_blocks * sizeof(int)));
 
   parallel_scan_phase_1<<<num_blocks, BLOCK_SIZE>>>(size, in_d, out_d, block_sums_d, num_blocks);
   cudaDeviceSynchronize();
@@ -105,12 +105,12 @@ int parallel_scan_multi_block(size_t size, float *in_d, float *out_d) {
       parallel_scan_phase_2<<<1, BLOCK_SIZE>>>(block_sums_d, num_blocks);
       cudaDeviceSynchronize();
     } else {
-      float *temp_d;
-      CUDA_CALL(cudaMalloc((void **)&temp_d, num_blocks * sizeof(float)));
+      int *temp_d;
+      CUDA_CALL(cudaMalloc((void **)&temp_d, num_blocks * sizeof(int)));
       
       parallel_scan_multi_block(num_blocks , block_sums_d, temp_d);
       
-      CUDA_CALL(cudaMemcpy(block_sums_d, temp_d, num_blocks * sizeof(float), 
+      CUDA_CALL(cudaMemcpy(block_sums_d, temp_d, num_blocks * sizeof(int), 
                            cudaMemcpyDeviceToDevice));
       CUDA_CALL(cudaFree(temp_d));
     }
@@ -127,17 +127,17 @@ int parallel_scan_multi_block(size_t size, float *in_d, float *out_d) {
 }
 
 int main() {
-  size_t size = 65536;
-  float *in_d, *in_h, *out_d, *out_h;
+  size_t size = 1048576;
+  int *in_d, *in_h, *out_d, *out_h;
 
   // Allocate on host
-  in_h = (float *)calloc(size, sizeof(float));
+  in_h = (int *)calloc(size, sizeof(int));
   CHECK_ALLOC(in_h);
-  out_h = (float *)calloc(size, sizeof(float));
+  out_h = (int *)calloc(size, sizeof(int));
   CHECK_ALLOC(out_h);
   // Allocate on device
-  CUDA_CALL(cudaMalloc((void **)&in_d, size * sizeof(float)));
-  CUDA_CALL(cudaMalloc((void **)&out_d, size * sizeof(float)));
+  CUDA_CALL(cudaMalloc((void **)&in_d, size * sizeof(int)));
+  CUDA_CALL(cudaMalloc((void **)&out_d, size * sizeof(int)));
 
   // Initialize
   // int e = random_init(size, in_d, in_h);
@@ -150,7 +150,7 @@ int main() {
 
   bool use_cuda = true;
   if(use_cuda) {
-    CUDA_CALL(cudaMemcpy(in_d, in_h, size * sizeof(float), cudaMemcpyHostToDevice));
+    CUDA_CALL(cudaMemcpy(in_d, in_h, size * sizeof(int), cudaMemcpyHostToDevice));
   }
   auto start = std::chrono::system_clock::now();
   if(use_cuda)
@@ -160,7 +160,7 @@ int main() {
   auto end = std::chrono::system_clock::now();
 
   if(use_cuda)
-    CUDA_CALL(cudaMemcpy(out_h, out_d, size * sizeof(float), cudaMemcpyDeviceToHost));
+    CUDA_CALL(cudaMemcpy(out_h, out_d, size * sizeof(int), cudaMemcpyDeviceToHost));
 
   // int number_of_prints = 20;
   std::cout << "First 3 entries of In Vec:" << std::endl;
