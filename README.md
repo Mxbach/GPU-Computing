@@ -7,6 +7,8 @@ GPU-accelerated vector addition and matrix-vector multiplication using CUDA. Inc
 
 ## Exercise 2: Parallel Inclusive Scan (Kogge-Stone Algorithm)
 
+![Kogge-Stone visualization](Exercise-2/docs/image.png)
+
 GPU-accelerated inclusive scan (prefix sum) for complex number arrays using the Kogge-Stone algorithm. Complex numbers are represented as adjacent float pairs (real, imaginary), with complex multiplication as the scan operation.
 
 ### Optimizations
@@ -19,6 +21,8 @@ Progressive implementation of performance optimizations:
 Benchmarked against CPU baseline for correctness and performance validation.
 
 ## Exercise 3: Tiled Matrix Multiplication and CUDA Streams
+
+![Tiled matrix multiplication visualization](Exercise-3/docs/image.png)
 
 GPU-optimized matrix multiplication using tiling for improved memory locality and CUDA streams for overlapping computation and communication. Implements collaborative data loading into shared memory to minimize expensive global memory accesses.
 
