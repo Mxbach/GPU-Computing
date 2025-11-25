@@ -35,39 +35,43 @@ __global__ void matrixMultiplyKernel(const float *A, const float *B, float *C, i
 // TODO: validate with extra method
 // Tiled kernel for matrix multiplication
 __global__ void matrixMultiplyKernelTiled(const float *A, const float *B, float *C, int n) {
-    // TODO: allocate shared memory for two tiles (one for A and one for B)
+    // Allocate shared memory for two tiles (one for A and one for B)
     __shared__ float Asub[TILE_SIZE][TILE_SIZE];
     __shared__ float Bsub[TILE_SIZE][TILE_SIZE];
+
     int row = blockIdx.y * blockDim.y + threadIdx.y;
     int col = blockIdx.x * blockDim.x + threadIdx.x;
-    if (row < n && col < n) {
-    // TODO: iterate over tiles
-        float Cvalue = 0.0;
-        for (int t = 0; t < (n + TILE_SIZE - 1) / TILE_SIZE; t++) {
-            // TODO: copy tiles from global memory into shared memory
-            int ai = t * TILE_SIZE + threadIdx.x;
-            int bi = t * TILE_SIZE + threadIdx.y;
 
-            if (ai < n) {
-                Asub[threadIdx.y][threadIdx.x] = A[row * n + ai];
-            } else {
-                Asub[threadIdx.y][threadIdx.x] = 0.0;
-            }
+    float Cvalue = 0.0;
 
-            if (bi < n) {
-                Bsub[threadIdx.x][threadIdx.y] = B[bi * n + col];
-            } else {
-                Bsub[threadIdx.x][threadIdx.y] = 0.0;
-            }
-            __syncthreads();
+    // Iterate over tiles
+    for (int t = 0; t < (n + TILE_SIZE - 1) / TILE_SIZE; t++) {
+        // Copy tiles from global memory into shared memory
+        int ai = t * TILE_SIZE + threadIdx.x;
+        int bi = t * TILE_SIZE + threadIdx.y;
 
-            // TODO: compute the matrix multiplication of the two tiles
-            for (int j = 0; j < TILE_SIZE; j++) {
-                Cvalue += Asub[threadIdx.y][j] * Bsub[j][threadIdx.x];
-            }
-            __syncthreads();
+        if (row < n && ai < n) {
+            Asub[threadIdx.y][threadIdx.x] = A[row * n + ai];
+        } else {
+            Asub[threadIdx.y][threadIdx.x] = 0.0;
         }
-        // TODO: write back the results into the matrix C
+
+        if (bi < n && col < n) {
+            Bsub[threadIdx.y][threadIdx.x] = B[bi * n + col];
+        } else {
+            Bsub[threadIdx.y][threadIdx.x] = 0.0;
+        }
+        __syncthreads();
+
+        // Compute the matrix multiplication of the two tiles
+        for (int j = 0; j < TILE_SIZE; j++) {
+            Cvalue += Asub[threadIdx.y][j] * Bsub[j][threadIdx.x];
+        }
+        __syncthreads();
+    }
+
+    // Write back the results into the matrix C
+    if (row < n && col < n) {
         C[row * n + col] = Cvalue;
     }
 }
