@@ -17,3 +17,13 @@ Progressive implementation of performance optimizations:
 4. **Memory Coalescing** (optional): Optimizing memory access patterns
 
 Benchmarked against CPU baseline for correctness and performance validation.
+
+## Exercise 3: Tiled Matrix Multiplication and CUDA Streams
+
+GPU-optimized matrix multiplication using tiling for improved memory locality and CUDA streams for overlapping computation and communication. Implements collaborative data loading into shared memory to minimize expensive global memory accesses.
+
+### Tasks
+1. **Stream-based Computation**: Overlap communication and computation using CUDA streams for multiple matrix multiplications
+2. **Tiled Matrix Multiplication**: Implement optimized kernel using shared memory tiling to reduce memory bandwidth bottlenecks and maximize data reuse
+
+Validated against CPU baseline with performance profiling using NVIDIA Nsight tools.
