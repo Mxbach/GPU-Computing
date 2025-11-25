@@ -15,6 +15,48 @@ const int NUM_MATRICES = 10; // Number of matrix multiplications
 const int MATRIX_SIZE = 4096;
 const int TILE_SIZE = 32;
 
+void random_init(float* M, int n) {
+    std::random_device rd;
+    std::mt19937 gen(rd());
+
+    std::uniform_int_distribution<> distrib(1, 15);
+
+    for (int i = 0; i < n; i++) {
+        for (int j = 0; j < n; j++) {
+            M[i * n + j] = distrib(gen);
+        }
+    }
+}
+
+void cpu_matmul(float *A, float *B, float *C, int n) {
+    for (int i = 0; i < n; i++) {
+        for (int j = 0; j < n; j++) {
+            for (int k = 0; k < n; k++) {
+                C[i * n + j] += A[i * n + k] * B[k * n + j];
+            }
+        }
+        if (i % 32 == 0)
+            std::cout << "cpu_matmul i: " << i << std::endl; 
+    }
+}
+
+int compare_matrices(float *A1, float *A2, int n) {
+    const float eps = 1.e-6;
+    for (int i = 0; i < n; i++) {
+        for (int j = 0; j < n; j++) {
+            float diff = fabs(A1[i * n + j] - A2[i * n + j]);
+            float abs_val = fmax(fabs(A1[i * n + j]), fabs(A2[i * n + j]));
+            float rel_err = (abs_val > eps) ? diff / abs_val : diff;
+
+            if (rel_err > eps) {
+                std::cerr << "Mismatch at i:" << i << ", j:" << j << std::endl;
+                return -1;
+            }
+        }
+    }
+    return 0;
+}
+
 // Simple kernel for matrix multiplication
 __global__ void matrixMultiplyKernel(const float *A, const float *B, float *C, int n)
 {
@@ -32,7 +74,6 @@ __global__ void matrixMultiplyKernel(const float *A, const float *B, float *C, i
     }
 }
 
-// TODO: validate with extra method
 // Tiled kernel for matrix multiplication
 __global__ void matrixMultiplyKernelTiled(const float *A, const float *B, float *C, int n) {
     // Allocate shared memory for two tiles (one for A and one for B)
@@ -81,6 +122,10 @@ void matrixMultiplyNoStreams() {
     float *h_A[NUM_MATRICES], *h_B[NUM_MATRICES], *h_C[NUM_MATRICES];
     float *d_A[NUM_MATRICES], *d_B[NUM_MATRICES], *d_C[NUM_MATRICES];
 
+    // // custom validation
+    // float *val_C[NUM_MATRICES];
+    // //
+
     for (int i = 0; i < NUM_MATRICES; i++)
     {
         h_A[i] = (float *)malloc(MATRIX_SIZE * MATRIX_SIZE * sizeof(float));
@@ -88,13 +133,20 @@ void matrixMultiplyNoStreams() {
         h_C[i] = (float *)malloc(MATRIX_SIZE * MATRIX_SIZE * sizeof(float));
 
         // Initialize example matrices with random numbers
-        for (int j = 0; j < MATRIX_SIZE * MATRIX_SIZE; j++)
-        {
+        for (int j = 0; j < MATRIX_SIZE * MATRIX_SIZE; j++) {
             // pick testing values, that allow us to compute the expected result on the CPU cheaply
             h_A[i][j] = 1.0f;
             h_B[i][j] = 0.01f;
             h_C[i][j] = 0.0f;
         }
+
+        // custom validation
+        // random_init(h_A[i], MATRIX_SIZE);
+        // random_init(h_B[i], MATRIX_SIZE);
+
+        // val_C[i] = (float *)calloc(MATRIX_SIZE * MATRIX_SIZE, sizeof(float));
+        // cpu_matmul(h_A[i], h_B[i], val_C[i], MATRIX_SIZE);
+        //
 
         CHECK_CUDA(cudaMalloc(&d_A[i], MATRIX_SIZE * MATRIX_SIZE * sizeof(float)));
         CHECK_CUDA(cudaMalloc(&d_B[i], MATRIX_SIZE * MATRIX_SIZE * sizeof(float)));
@@ -129,6 +181,15 @@ void matrixMultiplyNoStreams() {
                     j, h_C[i][j], MATRIX_SIZE * 0.01f, eps);
             }
         }
+
+        // custom validation
+        // if (compare_matrices(h_C[i], val_C[i], MATRIX_SIZE) != 0) {
+        //     std::cout << "Validation failed!" << std::endl;
+        // } else {
+        //     std::cout << "Validation passed!" << std::endl;
+        // }
+        // free(val_C[i]);
+        //
 
         // Cleanup
         free(h_A[i]);
