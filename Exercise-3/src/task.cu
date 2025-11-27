@@ -77,8 +77,8 @@ __global__ void matrixMultiplyKernel(const float *A, const float *B, float *C, i
 // Tiled kernel for matrix multiplication
 __global__ void matrixMultiplyKernelTiled(const float *A, const float *B, float *C, int n) {
     // Allocate shared memory for two tiles (one for A and one for B)
-    __shared__ float Asub[TILE_SIZE][TILE_SIZE];
-    __shared__ float Bsub[TILE_SIZE][TILE_SIZE];
+    __shared__ float Asub[TILE_SIZE][TILE_SIZE + 1];
+    __shared__ float Bsub[TILE_SIZE][TILE_SIZE + 1];
 
     int row = blockIdx.y * blockDim.y + threadIdx.y;
     int col = blockIdx.x * blockDim.x + threadIdx.x;
