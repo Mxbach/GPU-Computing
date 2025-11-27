@@ -122,9 +122,9 @@ void matrixMultiplyNoStreams() {
     float *h_A[NUM_MATRICES], *h_B[NUM_MATRICES], *h_C[NUM_MATRICES];
     float *d_A[NUM_MATRICES], *d_B[NUM_MATRICES], *d_C[NUM_MATRICES];
 
-    // // custom validation
+    // custom validation
     // float *val_C[NUM_MATRICES];
-    // //
+    //
 
     for (int i = 0; i < NUM_MATRICES; i++)
     {
@@ -201,42 +201,86 @@ void matrixMultiplyNoStreams() {
     }
 }
 
-// void matrixMultiplyWithStreams()
-// {
-//     // Host and device pointers
-//     float *h_A[NUM_MATRICES], *h_B[NUM_MATRICES], *h_C[NUM_MATRICES];
-//     float *d_A[NUM_MATRICES], *d_B[NUM_MATRICES], *d_C[NUM_MATRICES];
+void matrixMultiplyWithStreams()
+{
+    // Host and device pointers
+    float *h_A[NUM_MATRICES], *h_B[NUM_MATRICES], *h_C[NUM_MATRICES];
+    float *d_A[NUM_MATRICES], *d_B[NUM_MATRICES], *d_C[NUM_MATRICES];
+    size_t size = MATRIX_SIZE * MATRIX_SIZE * sizeof(float);
 
-//     // cudaStream_t streams[NUM_STREAMS];
+    int NUM_STREAMS = NUM_MATRICES; 
+    cudaStream_t streams[NUM_STREAMS];
 
-//     // TODO: Allocate memory, initialize data, create streams and copy data asynchronously
+    dim3 threadsPerBlock(TILE_SIZE, TILE_SIZE);
+    dim3 blocksPerGrid((MATRIX_SIZE + TILE_SIZE - 1) / TILE_SIZE, (MATRIX_SIZE + TILE_SIZE - 1) / TILE_SIZE);
 
-//     // TODO: Launch matrix multiplication kernel for each stream
+    for (int i = 0; i < NUM_STREAMS; i++) {
+        // Allocate memory, initialize data, create streams and copy data asynchronously
+        CHECK_CUDA(cudaStreamCreate(&streams[i]));
 
-//     // TODO: Copy results back to the host asynchronously
+        CHECK_CUDA(cudaMallocHost(&h_A[i], size));
+        CHECK_CUDA(cudaMallocHost(&h_B[i], size));
+        CHECK_CUDA(cudaMallocHost(&h_C[i], size));
 
-//     // TODO: Synchronize all streams
+        for (int j = 0; j < MATRIX_SIZE * MATRIX_SIZE; j++) {
+            h_A[i][j] = 1.0f;
+            h_B[i][j] = 0.01f;
+            h_C[i][j] = 0.0f;
+        }
 
-//     // Verify results (slow! use only for debugging)
-//     for (int i = 0; i < NUM_MATRICES; i++)
-//     {
-//         std::cout << "Matrix C[" << i << "]:" << std::endl;
-//         for (int row = 0; row < MATRIX_SIZE; row++)
-//         {
-//             for (int col = 0; col < MATRIX_SIZE; col++)
-//             {
-//                 std::cout << h_C[i][row * MATRIX_SIZE + col] << " ";
-//             }
-//             std::cout << std::endl;
-//         }
-//     }
+        CHECK_CUDA(cudaMalloc(&d_A[i], size));
+        CHECK_CUDA(cudaMalloc(&d_B[i], size));
+        CHECK_CUDA(cudaMalloc(&d_C[i], size));
+        
+        CHECK_CUDA(cudaMemcpyAsync(d_A[i], h_A[i], size, cudaMemcpyHostToDevice, streams[i]));
+        CHECK_CUDA(cudaMemcpyAsync(d_B[i], h_B[i], size, cudaMemcpyHostToDevice, streams[i]));
 
-//     // TODO: Cleanup
-// }
+        // Launch matrix multiplication kernel for each stream
+
+
+        std::cout << "Launch kernel with " << blocksPerGrid.x * blocksPerGrid.y << " blocks each with " << threadsPerBlock.x * threadsPerBlock.y << " threads\n";
+        matrixMultiplyKernelTiled<<<blocksPerGrid, threadsPerBlock, 0, streams[i]>>>(d_A[i], d_B[i], d_C[i], MATRIX_SIZE);
+        CHECK_CUDA(cudaGetLastError());
+
+        // Copy results back to the host asynchronously
+        CHECK_CUDA(cudaMemcpyAsync(h_C[i], d_C[i], size, cudaMemcpyDeviceToHost, streams[i]));
+    }
+
+    // Synchronize all streams
+    for (int i = 0; i < NUM_STREAMS; i++) {
+        CHECK_CUDA(cudaStreamSynchronize(streams[i]));
+    }
+
+    // Verify results (slow! use only for debugging)
+    // for (int i = 0; i < 1; i++) {
+    //     std::cout << "Matrix C[" << i << "]:" << std::endl;
+    //     for (int row = 0; row < MATRIX_SIZE; row++)
+    //     {
+    //         for (int col = 0; col < MATRIX_SIZE; col++)
+    //         {
+    //             std::cout << h_C[i][row * MATRIX_SIZE + col] << " ";
+    //         }
+    //         std::cout << std::endl;
+    //     }
+    // }
+
+    // Cleanup
+    for (int i = 0; i < NUM_STREAMS; i++) {
+        cudaFreeHost(h_A[i]);
+        cudaFreeHost(h_B[i]);
+        cudaFreeHost(h_C[i]);
+
+        cudaFree(d_A[i]);
+        cudaFree(d_B[i]);
+        cudaFree(d_C[i]);
+
+        cudaStreamDestroy(streams[i]);
+    }
+}
 
 int main()
 {
-    // matrixMultiplyWithStreams();
-    matrixMultiplyNoStreams();
+    matrixMultiplyWithStreams();
+    // matrixMultiplyNoStreams();
     return EXIT_SUCCESS;
 }
