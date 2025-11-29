@@ -15,6 +15,7 @@ const int NUM_MATRICES = 10; // Number of matrix multiplications
 const int MATRIX_SIZE = 4096;
 const int TILE_SIZE = 32;
 
+// custom validation functionality
 void random_init(float* M, int n) {
     std::random_device rd;
     std::mt19937 gen(rd());
@@ -77,8 +78,8 @@ __global__ void matrixMultiplyKernel(const float *A, const float *B, float *C, i
 // Tiled kernel for matrix multiplication
 __global__ void matrixMultiplyKernelTiled(const float *A, const float *B, float *C, int n) {
     // Allocate shared memory for two tiles (one for A and one for B)
-    __shared__ float Asub[TILE_SIZE][TILE_SIZE + 1];
-    __shared__ float Bsub[TILE_SIZE][TILE_SIZE + 1];
+    __shared__ float Asub[TILE_SIZE][TILE_SIZE + 1]; // padding increased performance 
+    __shared__ float Bsub[TILE_SIZE][TILE_SIZE + 1]; // according to nsight compute
 
     int row = blockIdx.y * blockDim.y + threadIdx.y;
     int col = blockIdx.x * blockDim.x + threadIdx.x;
@@ -236,8 +237,6 @@ void matrixMultiplyWithStreams()
         CHECK_CUDA(cudaMemcpyAsync(d_B[i], h_B[i], size, cudaMemcpyHostToDevice, streams[i]));
 
         // Launch matrix multiplication kernel for each stream
-
-
         std::cout << "Launch kernel with " << blocksPerGrid.x * blocksPerGrid.y << " blocks each with " << threadsPerBlock.x * threadsPerBlock.y << " threads\n";
         matrixMultiplyKernelTiled<<<blocksPerGrid, threadsPerBlock, 0, streams[i]>>>(d_A[i], d_B[i], d_C[i], MATRIX_SIZE);
         CHECK_CUDA(cudaGetLastError());
