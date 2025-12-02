@@ -136,20 +136,30 @@ void convolve_cpu2(half* out, half* input, half* kernels) {
 /////////////////////
 __global__ void convolve_gpu(half* out, half* input, half* kernels) {
     using namespace nvcuda;
+    __shared__ half A[CHUNK_SIZE*KERNEL_SIZE];
+    __shared__ half B[KERNEL_SIZE*NUM_KERNELS];
+    for (int t = 0; t < CHUNK_SIZE*KERNEL_SIZE; t+=32) {
+        int w = (t + threadIdx.x) / KERNEL_SIZE;
+        int o = (t + threadIdx.x) % KERNEL_SIZE;
+        A[t + threadIdx.x] = input[blockIdx.x * CHUNK_SIZE + w + o];
+    }
+    for (int t = 0; t < KERNEL_SIZE*NUM_KERNELS; t+=32) {
+        B[t + threadIdx.x] = kernels[t + threadIdx.x];
+    }
+    __syncthreads();
     // steps:
-    wmma::fragment<wmma::matrix_a, 16, 16, 16, half, wmma::col_major> a_frag;
+    wmma::fragment<wmma::matrix_a, 16, 16, 16, half, wmma::row_major> a_frag;
     wmma::fragment<wmma::matrix_b, 16, 16, 16, half, wmma::row_major> b_frag;
     wmma::fragment<wmma::accumulator, 16, 16, 16, half> c_frag;
     wmma::fill_fragment(c_frag, 0.0f);
     // - load input: the CHUNK_SIZE-many windows, each of size KERNEL_SIZE (A : CHUNK_SIZE x KERNEL_SIZE)
-    wmma::load_matrix_sync(a_frag, &input[blockIdx.x * CHUNK_SIZE], KERNEL_SIZE);
+    wmma::load_matrix_sync(a_frag, A, KERNEL_SIZE);
     // - load kernels: the NUM_KERNELS-many kernels, each of size KERNEL_SIZE (B : KERNEL_SIZE x NUM_KERNELS)
-    wmma::load_matrix_sync(b_frag, &kernels, KERNEL_SIZE);
+    wmma::load_matrix_sync(b_frag, B, NUM_KERNELS);
     // - compute C := matmul(A, B): (C : CHUNK_SIZE x NUM_KERNELS)
     wmma::mma_sync(c_frag, a_frag, b_frag, c_frag);
     // - write C back to out.
-    wmma::store_matrix_sync(out[blockIdx.x * NUM_KERNELS], c_frag, CHUNK_SIZE, wmma::mem_row_major);
-
+    wmma::store_matrix_sync(&out[blockIdx.x * CHUNK_SIZE * NUM_KERNELS], c_frag, NUM_KERNELS, wmma::mem_row_major);
     // You can orient yourself on convolve_cpu2.
     // Use the mma_sync function for matrix multiplication.
 }
@@ -180,7 +190,7 @@ int main() {
     ///////////////////
 
     // TODO: choose correct kernel launch parameters, and implement convolve_gpu.
-    convolve_gpu<<<1, 1>>>(gpu_out, gpu_input, gpu_kernels);
+    convolve_gpu<<<NUM_CHUNKS, 32>>>(gpu_out, gpu_input, gpu_kernels);
 
     ///////////////////
     // COMPARE
@@ -208,4 +218,5 @@ int main() {
     CUDA_CALL(cudaFree(gpu_kernels));
     CUDA_CALL(cudaFree(gpu_input));
     CUDA_CALL(cudaFree(gpu_out));
+    std::cout << "Done" << std::endl;
 }
