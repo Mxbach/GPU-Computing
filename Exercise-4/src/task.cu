@@ -189,7 +189,7 @@ int main() {
     // CALL GPU
     ///////////////////
 
-    // TODO: choose correct kernel launch parameters, and implement convolve_gpu.
+    // choose correct kernel launch parameters, and implement convolve_gpu.
     convolve_gpu<<<NUM_CHUNKS, 32>>>(gpu_out, gpu_input, gpu_kernels);
 
     ///////////////////
