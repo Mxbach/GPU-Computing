@@ -106,8 +106,6 @@ __global__ void heatSimKernel(float *a, float *b, int n, int m, float dx2, float
 }
 
 int main() {
-    std::cout << "cuda" << std::endl;
-
     size_t size = N * M * sizeof(float);
     // Allocate CPU memory
     float *h_matrix = (float*) malloc(N * M * sizeof(float));
