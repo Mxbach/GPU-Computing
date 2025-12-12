@@ -6,6 +6,7 @@
 #define ITERATIONS 100000       // Number of iterations
 #define DIFFUSION_FACTOR 0.5    // Diffusion factor
 #define CELL_SIZE 0.01          // Cell size for the simulation
+#define TILE_SIZE 32            // Tile size of the shared memory
 
 #define CUDA_CALL(x)                                                                                          \
     do                                                                                                        \
@@ -43,16 +44,61 @@ __global__ void heatSimKernel(float *a, float *b, int n, int m, float dx2, float
     int row = blockIdx.y * blockDim.y + threadIdx.y;
     int col = blockIdx.x * blockDim.x + threadIdx.x;
 
-    if(row < m && col < n  && (row == 0 || row == m-1 || col == 0 || col == n-1)) {
-        b[row * m + col] = a[row * m + col];
+    __shared__ float curr[TILE_SIZE + 2][TILE_SIZE + 2 + 1]; // space for border cells + padding
+
+    // load shared memory
+    if (row < m && col < n) {
+        curr[threadIdx.y + 1][threadIdx.x + 1] = a[row * m + col];
+
+        // above
+        if (threadIdx.y == 0) {
+            if (row == 0) {
+            curr[threadIdx.y][threadIdx.x + 1] = a[row * m + col];
+            } else {
+            curr[threadIdx.y][threadIdx.x + 1] = a[(row-1) * m + col];
+            }
+        }
+        
+        // below
+        if (threadIdx.y == blockDim.y-1) {
+            if (row == m-1) {
+                curr[threadIdx.y + 2][threadIdx.x + 1] = a[row * m + col];
+            } else {
+                curr[threadIdx.y + 2][threadIdx.x + 1] = a[(row+1) * m + col];
+            }
+        }
+
+        // left
+        if (threadIdx.x == 0) {
+            if (col == 0) {
+            curr[threadIdx.y + 1][threadIdx.x] = a[row * m + col];
+            } else {
+                curr[threadIdx.y + 1][threadIdx.x] = a[row * m + col - 1];
+            }
+        }
+
+        // right
+        if (threadIdx.x == blockDim.x-1) {
+            if (col == n-1) {
+                curr[threadIdx.y + 1][threadIdx.x + 2] = a[row * m + col];
+            } else {
+            curr[threadIdx.y + 1][threadIdx.x + 2] = a[row * m + col + 1];
+            }
+        }
+    }
+    __syncthreads();
+
+    if (row < m && col < n  && (row == 0 || row == m-1 || col == 0 || col == n-1)) {
+        b[row * m + col] = curr[threadIdx.y + 1][threadIdx.x + 1];
     }
 
     if (0 < row && row < m-1 && 0 < col && col < n-1) {
-        float left = a[row * m + col - 1];
-        float right = a[row * m + col + 1];
-        float below = a[(row-1) * m + col];
-        float above = a[(row+1) * m + col];
-        float center = a[row * m + col];
+        float left = curr[threadIdx.y + 1][threadIdx.x];
+        float right = curr[threadIdx.y + 1][threadIdx.x + 2];
+        float below = curr[threadIdx.y][threadIdx.x + 1];
+        float above = curr[threadIdx.y + 2][threadIdx.x + 1];
+        float center = curr[threadIdx.y + 1][threadIdx.x + 1];
+
         b[row * m + col] = center + DIFFUSION_FACTOR * dt *
                                     ((left - 2.0 * center + right) / dy2 +
                                     (above - 2.0 * center + below) / dx2);
